@@ -323,31 +323,36 @@ namespace HuggingfaceHub
         /// <param name="expectedSize"></param>
         /// <param name="retryLeft"></param>
         /// <param name="progress"></param>
-        private static async Task HttpDownloadWithStreamAsync(HttpClient client, Uri uri, FileStream fs, string? proxy = null, long resumeSize = 0, 
-            IDictionary<string, string>? headers = null, long expectedSize = -1, int retryLeft = 5, IProgress<int>? progress = null)
+        private static async Task HttpDownloadWithStreamAsync(HttpClient client, Uri uri, FileStream fs, string? proxy = null, long resumeSize = 0,
+           IDictionary<string, string>? headers = null, long expectedSize = -1, int retryLeft = 5, IProgress<int>? progress = null)
         {
             using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
             {
                 //Utils.AddDefaultHeaders(request.Headers);
-                if(headers is not null)
+                if (headers is not null)
                 {
                     foreach (var k in headers.Keys)
                     {
                         request.Headers.TryAddWithoutValidation(k, headers[k]);
                     }
                 }
-                if(resumeSize > 0)
+                if (resumeSize > 0)
                 {
                     request.Headers.TryAddWithoutValidation("Range", $"bytes={resumeSize}-");
                 }
                 using (var response = await Utils.HttpRequestWrapperAsync(client, request, false, true))
                 {
                     response.EnsureSuccessStatusCode();
-                    Debug.Assert(response.Content.Headers.TryGetValues("Content-Length", out var lengths));
-                    Debug.Assert(lengths is not null && lengths!.Count() > 0);
-                    // NOTE: 'total' is the total number of bytes to download, not the number of bytes in the file.
-                    // If the file is compressed, the number of bytes in the saved file will be higher than 'total'.
-                    if(long.TryParse(lengths!.First(), out var totalFileLengths))
+
+                    // Исправление проблемы с переменной lengths
+                    bool hasContentLength = response.Content.Headers.TryGetValues("Content-Length", out var lengths);
+                    long totalFileLengths;
+
+                    if (!hasContentLength || lengths == null || !lengths.Any())
+                    {
+                        totalFileLengths = -1;
+                    }
+                    else if (long.TryParse(lengths.First(), out totalFileLengths))
                     {
                         totalFileLengths += resumeSize;
                     }
@@ -355,6 +360,7 @@ namespace HuggingfaceHub
                     {
                         totalFileLengths = -1;
                     }
+
                     var newResumeSize = resumeSize;
 
                     var chunkSize = HFGlobalConfig.DownloadChunkSize;
@@ -375,9 +381,9 @@ namespace HuggingfaceHub
                                 retryLeft = 5;
                             }
                         }
-                        catch(IOException ex)
+                        catch (IOException ex)
                         {
-                            if(retryLeft < 0)
+                            if (retryLeft < 0)
                             {
                                 Logger?.LogWarning($"Error while downloading from {uri.AbsoluteUri}: {ex.Message}\nMax retries exceeded.");
                                 throw new HttpRequestException(ex.Message);
@@ -390,7 +396,7 @@ namespace HuggingfaceHub
                         }
                     }
 
-                    if(expectedSize != -1 && expectedSize != fs.Position)
+                    if (expectedSize != -1 && expectedSize != fs.Position)
                     {
                         throw new Exception();
                     }
